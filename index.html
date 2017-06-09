@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Maps</title>
+    <script src="night.js" type="text/javascript"></script>
+    <meta name="viewport" content="initial-scale=1.0">
+    <meta charset="utf-8">
+    <style type="text/css">
+      html, body {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        font-family: Georgia;
+        font-size: 16px;
+        color: black;
+        background: Beige;
+        text-align: center;
+        min-width: 1024px;
+      }
+      p {
+        color: red;
+        font-weight: bold;
+        font-size: 18px;
+      }
+      #header {
+        background: #8fa09b;
+        font-size: 24pt;
+        font-weight: bold;
+        font-family: Comic Sans MS;
+        text-align: left;
+        color: #edeed5;
+        padding: 2px;
+      }
+      #footer {
+        position: fixed;
+        bottom: 0;
+        padding: 7px;
+        background: #39b54a;
+        color: #F5DA81;
+        width: 100%;
+      }
+      #map {
+        height: 88%;
+        width: 70%;
+        float: left;
+      }
+      #places {
+        color: blue;
+        font-size: 18px;
+      }
+      #history {
+        color: green;
+        font-family: Comic Sans MS;
+        font-size: 16px;
+        width: 30%;
+        float: right;
+        margin-bottom: 40px;
+      }
+      .handing {
+        border: 2px solid transparent;
+        border-radius: 2px 0 0 2px;
+        box-sizing: border-box;
+        height: 36px;
+        outline: none;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+      }
+
+      #search {
+        background-color: white;
+        font-family: Arial;
+        font-size: 15px;
+        font-weight: 300;
+        margin-left: 10px;
+        margin-top: 25px;
+        padding: 0 11px 0 13px;
+        text-overflow: ellipsis;
+        width: 270px;
+      }
+
+      #search:focus {
+        border-color: #4d90fe;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="header">Проект: <a href="https://www.github.com/VitalyZhuravlev/GIS">Github</a> (версия 08.06.2017)</div>
+    <div id="map"></div>
+    <p> Кликните по карте и программа выберет Вам случайную достопримечательность </p>
+    <hr>
+    <div id="coordinates"></div>
+    <hr>
+    <div id="places"></div>
+    <hr>
+    <div id="history"></div>
+    <script>
+    
+    var map;
+    var infowindow;
+    var sydney = {lat: -33.866, lng: 151.195};
+    var history = [];
+    var sum = 0;
+
+  function CenterControl(controlDiv, map) {
+    var controlUI = document.createElement('div');
+    controlUI.style.backgroundColor = 'white';
+    controlUI.style.border = '3px solid white';
+    controlUI.style.borderRadius = '3px';
+    controlUI.style.boxShadow = '2px 2px 6px rgba(0,0,0,.3)';
+    controlUI.style.cursor = 'pointer';
+    controlUI.style.marginBottom = '70px';
+    controlUI.style.marginRight = '5px';
+    controlUI.style.textAlign = 'center';
+    controlUI.title = 'Нажмите, чтобы программа выбрала случайную достопримечательность в центре города';
+    controlDiv.appendChild(controlUI);
+    
+    var controlText = document.createElement('div');
+    controlText.style.color = 'rgb(25,25,25)';
+    controlText.style.fontFamily = 'Verdana';
+    controlText.style.fontSize = '18px';
+    controlText.style.lineHeight = '38px';
+    controlText.style.paddingLeft = '5px';
+    controlText.style.paddingRight = '5px';
+    controlText.innerHTML = 'Рандом';
+    controlUI.appendChild(controlText);
+    
+    controlUI.addEventListener('click', function() {
+      if (sum) {
+        placeAndPanTo(history[sum].geometry.location, map);
+      } else {
+        placeAndPanTo(sydney, map);
+      }
+    });
+  }
+
+function initMap() {
+
+  map = new google.maps.Map(document.getElementById('map'), {
+    center: sydney,
+    zoom: 12,
+    fullscreenControl: true,
+    scaleControl: true
+  });
+
+document.getElementById("coordinates").innerHTML = "Координаты: ("+sydney['lat']+" "+sydney['lng']+")";
+document.getElementById("places").innerHTML = "Случайный выбор: "+"<br \/>";
+document.getElementById("history").innerHTML = "История: " + "<br \/>";
+
+  var centerControlDiv = document.createElement('div');
+  var centerControl = new CenterControl(centerControlDiv, map);
+
+  var transitLayer = new google.maps.TransitLayer();
+  transitLayer.setMap(map);
+
+  centerControlDiv.index = 1;
+  map.controls[google.maps.ControlPosition.RIGHT_CENTER].push(centerControlDiv);
+  map.setOptions({styles: night});
+
+  map.addListener('click', function(e) {
+    placeAndPanTo(e.latLng, map);
+  });
+
+  var input = document.getElementById('search');
+  var searchBox = new google.maps.places.SearchBox(input);
+  map.controls[google.maps.ControlPosition.LEFT_TOP].push(input);
+
+    map.addListener('bounds_changed', function() {
+      searchBox.setBounds(map.getBounds());
+    });
+
+    var markers = [];
+    searchBox.addListener('places_changed', function() {
+      var places = searchBox.getPlaces();
+
+      if (places.length == 0) {
+        return;
+      }
+
+      markers.forEach(function(marker) {
+        marker.setMap(null);
+      });
+      markers = [];
+
+      var bounds = new google.maps.LatLngBounds();
+      places.forEach(function(place) {
+        if (!place.geometry) {
+          return;
+        }
+        var icon = {
+          url: place.icon,
+          size: new google.maps.Size(71, 71),
+          origin: new google.maps.Point(0, 0),
+          anchor: new google.maps.Point(17, 34),
+          scaledSize: new google.maps.Size(25, 25)
+        };
+
+        markers.push(new google.maps.Marker({
+          map: map,
+          icon: icon,
+          title: place.name,
+          position: place.geometry.location
+        }));
+
+        if (place.geometry.viewport) {
+          bounds.union(place.geometry.viewport);
+        } else {
+          bounds.extend(place.geometry.location);
+        }
+      });
+      map.fitBounds(bounds);
+    });
+  }
+
+  function placeAndPanTo(latLng, map) {
+
+   infowindow = new google.maps.InfoWindow();
+
+  var service = new google.maps.places.PlacesService(map);
+  service.nearbySearch({
+    location: latLng,
+    radius: 700,
+    types: ['amusement_park', 'aquarium', 'art_gallery', 'church', 'city_hall', 'hindu_temple', 'zoo', 'synagogue',
+    'stadium', 'park', 'place_of_worship', 'museum', 'mosque', 'library']
+  }, callback);
+  }
+
+  function randomInteger(min, max) {
+    var rand = min - 0.5 + Math.random() * (max - min + 1);
+    rand = Math.round(rand);
+    return rand;
+  }
+
+  function callback(results, status) {
+  document.getElementById("places").innerHTML = "Случайный выбор: "+"<br \/>";
+  if (status === google.maps.places.PlacesServiceStatus.OK) {
+      var i = randomInteger(0, results.length);
+      if (!results[i]) {
+          document.getElementById("places").innerHTML += "Тут нет ничего интересного :("  +  "<br>";
+      } else {
+        ++sum;
+        history[sum] = results[i];
+      }
+      document.getElementById("coordinates").innerHTML = "Координаты: " + results[i].geometry.location;
+      document.getElementById("places").innerHTML += results[i].name + "<br>";
+      if (sum <= 5) {    
+          document.getElementById("history").innerHTML += sum + ") " + results[i].name + "<br>" + results[i].vicinity + "<br><br>";
+      }
+      if (sum == 6) {
+          document.getElementById("history").innerHTML += "Места больше нет :) ";
+      }
+      if (createPhotoMarker(results[i]) == -1) {
+        createMarker(results[i]);
+      }
+      map.setZoom(15);
+      map.panTo(results[i].geometry.location);
+  }
+
+  function createMarker(place) {
+  var placeLoc = place.geometry.location;
+  var marker = new google.maps.Marker({
+      map: map,
+      position: place.geometry.location,
+      animation: google.maps.Animation.DROP
+  });
+  google.maps.event.addListener(marker, 'click', function() {
+      infowindow.setContent(place.name + "<br>" + place.vicinity);
+      infowindow.open(map, this);
+  });
+  }
+}
+
+function createPhotoMarker(place) {
+  var photos = place.photos;
+  if (!photos) {
+    return -1;
+  }
+
+  var marker = new google.maps.Marker({
+    map: map,
+    position: place.geometry.location,
+    title: place.name,
+    icon: photos[0].getUrl({'maxWidth': 80, 'maxHeight': 80})
+  });
+    google.maps.event.addListener(marker, 'click', function() {
+      infowindow.setContent(place.name + "<br>" + place.vicinity);
+      infowindow.open(map, this);
+  });
+}
+
+</script>
+<div id="footer">&copy; Vitaly Zhuravlev, 2017.</div>
+<input id="search" class="handing" type="text" placeholder="Поиск">
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCS2vO11e3ZHeqK7MZxTu27_wZ2SlW6TWQ&callback=initMap&libraries=places" async defer></script>
+  </body>
+</html>
